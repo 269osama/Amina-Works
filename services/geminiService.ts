@@ -161,3 +161,139 @@ export const translateSubtitlesWithGemini = async (
     throw new Error("Translation failed. Please try again.");
   }
 };
+
+// --- BATCH AUDIO GENERATION HELPERS ---
+
+/**
+ * Splits text into chunks that are safe for TTS API limits (~300 chars is safe for quality/speed per request).
+ * Respects sentence boundaries.
+ */
+const splitTextIntoChunks = (text: string, maxChunkSize = 300): string[] => {
+  const chunks: string[] = [];
+  let currentChunk = '';
+  
+  // Split by sentence ending punctuation
+  const sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
+
+  for (const sentence of sentences) {
+    if ((currentChunk + sentence).length > maxChunkSize) {
+      if (currentChunk.trim()) chunks.push(currentChunk.trim());
+      currentChunk = sentence;
+    } else {
+      currentChunk += ' ' + sentence;
+    }
+  }
+  if (currentChunk.trim()) chunks.push(currentChunk.trim());
+  
+  return chunks;
+};
+
+// Helper to concatenate audio buffers
+const concatenateAudioBuffers = (buffers: ArrayBuffer[]): ArrayBuffer => {
+    let totalLength = 0;
+    buffers.forEach(buffer => totalLength += buffer.byteLength);
+    const tmp = new Uint8Array(totalLength);
+    let offset = 0;
+    buffers.forEach(buffer => {
+        tmp.set(new Uint8Array(buffer), offset);
+        offset += buffer.byteLength;
+    });
+    return tmp.buffer;
+};
+
+// Create a WAV header for raw PCM data (Assuming 24kHz Mono from Gemini for this example, or standardizing)
+// NOTE: Gemini TTS output format is typically raw. We wrap it to make it playable.
+const createWavHeader = (dataLength: number, sampleRate = 24000) => {
+    const buffer = new ArrayBuffer(44);
+    const view = new DataView(buffer);
+
+    const writeString = (offset: number, string: string) => {
+        for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i));
+    };
+
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + dataLength, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true); // PCM
+    view.setUint16(22, 1, true); // Mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true); // Byte rate
+    view.setUint16(32, 2, true); // Block align
+    view.setUint16(34, 16, true); // Bits per sample
+    writeString(36, 'data');
+    view.setUint32(40, dataLength, true);
+
+    return buffer;
+};
+
+export const generateDubbedAudio = async (
+    text: string, 
+    onProgress?: (percentage: number) => void
+): Promise<string> => {
+    try {
+        const chunks = splitTextIntoChunks(text);
+        const audioBuffers: ArrayBuffer[] = [];
+        
+        console.log(`Starting batch TTS for ${text.length} chars in ${chunks.length} chunks`);
+
+        for (let i = 0; i < chunks.length; i++) {
+            const chunk = chunks[i];
+            
+            // Report progress
+            if (onProgress) {
+                onProgress(Math.round(((i) / chunks.length) * 100));
+            }
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash-preview-tts',
+                contents: {
+                    parts: [{ text: chunk }]
+                },
+                config: {
+                    responseModalities: ['AUDIO'],
+                    speechConfig: {
+                        voiceConfig: {
+                            prebuiltVoiceConfig: { voiceName: 'Kore' }
+                        }
+                    }
+                }
+            });
+
+            const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+            if (base64Audio) {
+                const binaryString = atob(base64Audio);
+                const len = binaryString.length;
+                const bytes = new Uint8Array(len);
+                for (let j = 0; j < len; j++) {
+                    bytes[j] = binaryString.charCodeAt(j);
+                }
+                audioBuffers.push(bytes.buffer);
+            }
+            
+            // Tiny delay to be nice to the API
+            await new Promise(r => setTimeout(r, 100));
+        }
+
+        if (onProgress) onProgress(100);
+
+        if (audioBuffers.length === 0) {
+            throw new Error("No audio generated from batches.");
+        }
+
+        // Concatenate all chunks
+        const rawPcmData = concatenateAudioBuffers(audioBuffers);
+        
+        // Add WAV header so browser understands it (Gemini TTS default is often 24kHz)
+        const header = createWavHeader(rawPcmData.byteLength, 24000); 
+        const finalBuffer = concatenateAudioBuffers([header, rawPcmData]);
+
+        const blob = new Blob([finalBuffer], { type: 'audio/wav' });
+        return URL.createObjectURL(blob);
+
+    } catch (error) {
+        console.error("Dubbing Error:", error);
+        throw new Error("Failed to generate audio dub.");
+    }
+};

@@ -71,7 +71,7 @@ export interface UserProjectData {
 
 // --- Activity Logging ---
 
-export type ActivityType = 'UPLOAD' | 'GENERATE' | 'TRANSLATE' | 'EXPORT';
+export type ActivityType = 'UPLOAD' | 'GENERATE' | 'TRANSLATE' | 'EXPORT' | 'DUB';
 
 export interface ActivityLog {
   id: string;
