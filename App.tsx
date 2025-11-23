@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Subtitle, ProcessingStatus, LANGUAGES, User } from './types';
-import { generateSRT, downloadFile, fileToBase64 } from './utils';
+import { generateSRT, downloadFile, fileToBase64, processMediaForGemini } from './utils';
 import { generateSubtitlesFromMedia, translateSubtitlesWithGemini } from './services/geminiService';
 import { mockBackend } from './services/mockBackend';
 import VideoPlayer from './components/VideoPlayer';
@@ -9,6 +9,7 @@ import Timeline from './components/Timeline';
 import AuthScreen from './components/AuthScreen';
 import AdminDashboard from './components/AdminDashboard';
 import AdminPortal from './components/AdminPortal';
+import GoogleDrivePicker from './components/GoogleDrivePicker';
 import { 
   Sparkles, 
   Upload, 
@@ -28,7 +29,8 @@ import {
   LogOut,
   Shield,
   Save,
-  LayoutGrid
+  LayoutGrid,
+  HardDrive
 } from 'lucide-react';
 
 // Routing State
@@ -60,8 +62,13 @@ const App: React.FC = () => {
   const [zoomLevel, setZoomLevel] = useState(50); // Pixels per second
   const [isSyncMenuOpen, setIsSyncMenuOpen] = useState(false);
 
+  // Drive State
+  const [isDrivePickerOpen, setIsDrivePickerOpen] = useState(false);
+  const [driveMode, setDriveMode] = useState<'import' | 'export'>('import');
+
   // --- Auth Lifecycle ---
   useEffect(() => {
+    // Check persistent storage on load
     const user = mockBackend.getCurrentUser();
     if (user) {
       handleLoginSuccess(user);
@@ -83,7 +90,7 @@ const App: React.FC = () => {
   };
 
   const loadUserData = (userId: string) => {
-    // Load previous work
+    // Load previous work from persistent storage
     mockBackend.loadUserWork(userId).then(data => {
       if (data) {
         setSubtitles(data.subtitles);
@@ -162,7 +169,7 @@ const App: React.FC = () => {
       setMediaFile(file);
       setMediaUrl(URL.createObjectURL(file));
       
-      // Only reset if we have no subtitles, otherwise user might be attaching video to restored project
+      // Only reset if we have no subtitles
       if (subtitles.length === 0) {
         const initialSubs: Subtitle[] = [];
         setSubtitles(initialSubs);
@@ -241,6 +248,32 @@ const App: React.FC = () => {
     }
   };
 
+  // --- Drive Actions ---
+  const openDriveImport = () => {
+      setDriveMode('import');
+      setIsDrivePickerOpen(true);
+  };
+  
+  const openDriveExport = () => {
+      setDriveMode('export');
+      setIsDrivePickerOpen(true);
+  };
+
+  const handleDriveConnect = async () => {
+      if (currentUser) {
+          await mockBackend.updateUserDriveStatus(currentUser.id, true);
+          setCurrentUser({...currentUser, googleDriveConnected: true});
+      }
+  };
+
+  const handleDriveSelect = async (url: string, name: string) => {
+      setMediaUrl(url);
+      setMediaFile(new File([], name)); // Mock file object for name display
+      setStatus(ProcessingStatus.READY);
+      // If we import a new video, we might want to keep existing subs or clear them. 
+      // For now, let's keep them if they exist, assuming re-linking.
+  };
+
   const activeSubtitleId = subtitles.find(
     s => currentTime >= s.startTime && currentTime <= s.endTime
   )?.id || null;
@@ -292,7 +325,7 @@ const App: React.FC = () => {
         onSelect={(dest) => {
            if (dest === 'workspace') {
              setViewMode('workspace');
-             // Ensure data is loaded if it wasn't already (admins have separate saved work)
+             // Ensure data is loaded
              loadUserData(currentUser.id);
            } else {
              setViewMode('admin-dashboard');
@@ -312,6 +345,16 @@ const App: React.FC = () => {
   return (
     <div className="h-screen w-screen flex flex-col bg-black text-zinc-100 font-sans overflow-hidden selection:bg-amber-500/30 selection:text-amber-100">
       
+      <GoogleDrivePicker 
+         isOpen={isDrivePickerOpen} 
+         onClose={() => setIsDrivePickerOpen(false)}
+         mode={driveMode}
+         isConnected={!!currentUser.googleDriveConnected}
+         onConnect={handleDriveConnect}
+         onSelectFile={handleDriveSelect}
+         onExport={() => setStatusMessage("Saved to Google Drive successfully.")}
+      />
+
       {/* --- Top Bar --- */}
       <header className="h-16 border-b border-zinc-900 bg-zinc-950 flex items-center justify-between px-4 shrink-0 z-50 shadow-lg">
         
@@ -336,6 +379,15 @@ const App: React.FC = () => {
                   Import Media
                   <input type="file" className="hidden" accept="video/*,audio/*" onChange={handleFileUpload} />
                 </label>
+                
+                <button 
+                  onClick={openDriveImport}
+                  className="flex items-center gap-2 px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded-md text-xs font-medium transition-all border border-zinc-800 hover:border-zinc-700"
+                >
+                  <HardDrive size={14} />
+                  Drive
+                </button>
+
                 {subtitles.length > 0 && (
                    <span className="text-xs text-amber-500 bg-amber-500/10 px-2 py-1 rounded border border-amber-500/20 animate-pulse">
                      Session Restored
@@ -345,7 +397,7 @@ const App: React.FC = () => {
           ) : (
              <div className="flex items-center gap-2 bg-zinc-900/50 pr-1 rounded-md border border-zinc-800">
                 <span className="text-xs text-zinc-300 px-3 py-1.5 max-w-[150px] truncate border-r border-zinc-800">
-                  {mediaFile?.name}
+                  {mediaFile?.name || "Imported Media"}
                 </span>
                 <button 
                   onClick={handleResetProject}
@@ -444,13 +496,22 @@ const App: React.FC = () => {
                             </button>
                         </div>
                         
-                        <button 
-                            onClick={() => handleExport('srt')}
-                            className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded-md text-xs font-medium transition-colors border border-zinc-800 hover:border-zinc-700"
-                        >
-                            <Download size={14} />
-                            Export
-                        </button>
+                        <div className="flex items-center bg-zinc-900 rounded-md border border-zinc-800 overflow-hidden">
+                             <button 
+                                onClick={() => handleExport('srt')}
+                                className="px-3 py-1.5 hover:bg-zinc-800 text-zinc-300 text-xs font-medium transition-colors border-r border-zinc-800"
+                            >
+                                <Download size={14} className="inline mr-1" />
+                                Export
+                            </button>
+                            <button 
+                                onClick={openDriveExport}
+                                className="px-2 py-1.5 hover:bg-zinc-800 text-zinc-400 hover:text-blue-400 transition-colors"
+                                title="Save to Google Drive"
+                            >
+                                <HardDrive size={14} />
+                            </button>
+                        </div>
                     </>
                 )}
              </div>

@@ -13,7 +13,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'sessions'>('overview');
 
   useEffect(() => {
-    // Load data
+    // Load data from persistent storage
     setUsers(mockBackend.getAllUsers());
     setSessions(mockBackend.getAllSessions());
   }, []);

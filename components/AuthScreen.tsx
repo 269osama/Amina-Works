@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { ArrowRight, User as UserIcon, Lock, Loader2, Sparkles } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { ArrowRight, User as UserIcon, Lock, Loader2, Sparkles, Eye, EyeOff } from 'lucide-react';
 import { mockBackend } from '../services/mockBackend';
 import { User } from '../types';
 
@@ -14,6 +14,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess }) => {
   
   const [identifier, setIdentifier] = useState(""); // Email or Username
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [name, setName] = useState("");
 
   const cardRef = useRef<HTMLDivElement>(null);
@@ -54,13 +55,14 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess }) => {
         user = await mockBackend.signup(identifier, password, name);
       }
       
-      // Simulate a "premium" loading delay for effect
-      setTimeout(() => {
-        onLoginSuccess(user);
-      }, 800);
+      onLoginSuccess(user);
       
     } catch (err: any) {
       setError(err.message || "Authentication failed");
+      
+      // Security: Clear password on failure to allow fresh retry
+      setPassword("");
+      
       setIsLoading(false);
     }
   };
@@ -103,58 +105,73 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess }) => {
           </div>
 
           {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-5 relative z-20">
+          <form onSubmit={handleSubmit} className="space-y-6 relative z-20">
             
             {!isLogin && (
-              <div className="group/input relative">
+              <div className="relative group/input">
                 <input 
                   type="text" 
+                  id="name"
                   required 
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full bg-zinc-900/30 border border-zinc-800 rounded-lg py-3 px-4 pl-11 text-sm text-zinc-200 focus:bg-zinc-900/50 focus:border-amber-500/40 focus:ring-1 focus:ring-amber-500/40 outline-none transition-all placeholder-transparent peer"
-                  placeholder="Full Name"
-                  id="name"
+                  className="block px-2.5 pb-2.5 pt-4 w-full text-sm text-zinc-100 bg-zinc-900/50 rounded-lg border border-zinc-700 appearance-none focus:outline-none focus:ring-0 focus:border-amber-500 peer"
+                  placeholder=" "
                 />
-                <label htmlFor="name" className="absolute left-11 top-3.5 text-zinc-500 text-xs transition-all peer-placeholder-shown:text-sm peer-placeholder-shown:top-3.5 peer-focus:top-[-10px] peer-focus:left-2 peer-focus:text-amber-500/80 peer-focus:text-[10px] peer-not-placeholder-shown:top-[-10px] peer-not-placeholder-shown:left-2 peer-not-placeholder-shown:text-zinc-400 peer-not-placeholder-shown:text-[10px] bg-black/50 px-1 rounded backdrop-blur-sm pointer-events-none">
+                <label 
+                  htmlFor="name" 
+                  className="absolute text-sm text-zinc-500 duration-300 transform -translate-y-4 scale-75 top-2 z-10 origin-[0] bg-transparent px-2 peer-focus:px-2 peer-focus:text-amber-500 peer-placeholder-shown:scale-100 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:top-1/2 peer-focus:top-2 peer-focus:scale-75 peer-focus:-translate-y-4 left-1 backdrop-blur-sm rounded pointer-events-none"
+                >
                   Full Name
                 </label>
-                <UserIcon size={16} className="absolute left-3.5 top-3.5 text-zinc-600 transition-colors peer-focus:text-amber-500/50" />
+                <UserIcon size={16} className="absolute right-3 top-3.5 text-zinc-600 peer-focus:text-amber-500/50 transition-colors pointer-events-none" />
               </div>
             )}
 
-            <div className="group/input relative">
+            <div className="relative group/input">
               <input 
                 type="text" 
+                id="identifier"
                 required 
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
-                className="w-full bg-zinc-900/30 border border-zinc-800 rounded-lg py-3 px-4 pl-11 text-sm text-zinc-200 focus:bg-zinc-900/50 focus:border-amber-500/40 focus:ring-1 focus:ring-amber-500/40 outline-none transition-all placeholder-transparent peer"
-                placeholder={isLogin ? "Username or Email" : "Email Address"}
-                id="identifier"
+                className="block px-2.5 pb-2.5 pt-4 w-full text-sm text-zinc-100 bg-zinc-900/50 rounded-lg border border-zinc-700 appearance-none focus:outline-none focus:ring-0 focus:border-amber-500 peer"
+                placeholder=" "
               />
-              <label htmlFor="identifier" className="absolute left-11 top-3.5 text-zinc-500 text-xs transition-all peer-placeholder-shown:text-sm peer-placeholder-shown:top-3.5 peer-focus:top-[-10px] peer-focus:left-2 peer-focus:text-amber-500/80 peer-focus:text-[10px] peer-not-placeholder-shown:top-[-10px] peer-not-placeholder-shown:left-2 peer-not-placeholder-shown:text-zinc-400 peer-not-placeholder-shown:text-[10px] bg-black/50 px-1 rounded backdrop-blur-sm pointer-events-none">
+              <label 
+                htmlFor="identifier" 
+                className="absolute text-sm text-zinc-500 duration-300 transform -translate-y-4 scale-75 top-2 z-10 origin-[0] bg-transparent px-2 peer-focus:px-2 peer-focus:text-amber-500 peer-placeholder-shown:scale-100 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:top-1/2 peer-focus:top-2 peer-focus:scale-75 peer-focus:-translate-y-4 left-1 backdrop-blur-sm rounded pointer-events-none"
+              >
                 {isLogin ? "Username or Email" : "Email Address"}
               </label>
-              <div className="absolute left-3.5 top-3.5 text-zinc-600 transition-colors peer-focus:text-amber-500/50">
-                 <Sparkles size={16} />
-              </div>
+              <Sparkles size={16} className="absolute right-3 top-3.5 text-zinc-600 peer-focus:text-amber-500/50 transition-colors pointer-events-none" />
             </div>
 
-            <div className="group/input relative">
+            <div className="relative group/input">
               <input 
-                type="password" 
+                type={showPassword ? "text" : "password"}
+                id="password"
                 required 
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-zinc-900/30 border border-zinc-800 rounded-lg py-3 px-4 pl-11 text-sm text-zinc-200 focus:bg-zinc-900/50 focus:border-amber-500/40 focus:ring-1 focus:ring-amber-500/40 outline-none transition-all placeholder-transparent peer"
-                placeholder="Password"
-                id="password"
+                className="block px-2.5 pb-2.5 pt-4 w-full text-sm text-zinc-100 bg-zinc-900/50 rounded-lg border border-zinc-700 appearance-none focus:outline-none focus:ring-0 focus:border-amber-500 peer pr-10"
+                placeholder=" "
               />
-              <label htmlFor="password" className="absolute left-11 top-3.5 text-zinc-500 text-xs transition-all peer-placeholder-shown:text-sm peer-placeholder-shown:top-3.5 peer-focus:top-[-10px] peer-focus:left-2 peer-focus:text-amber-500/80 peer-focus:text-[10px] peer-not-placeholder-shown:top-[-10px] peer-not-placeholder-shown:left-2 peer-not-placeholder-shown:text-zinc-400 peer-not-placeholder-shown:text-[10px] bg-black/50 px-1 rounded backdrop-blur-sm pointer-events-none">
+              <label 
+                htmlFor="password" 
+                className="absolute text-sm text-zinc-500 duration-300 transform -translate-y-4 scale-75 top-2 z-10 origin-[0] bg-transparent px-2 peer-focus:px-2 peer-focus:text-amber-500 peer-placeholder-shown:scale-100 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:top-1/2 peer-focus:top-2 peer-focus:scale-75 peer-focus:-translate-y-4 left-1 backdrop-blur-sm rounded pointer-events-none"
+              >
                 Password
               </label>
-              <Lock size={16} className="absolute left-3.5 top-3.5 text-zinc-600 transition-colors peer-focus:text-amber-500/50" />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-3.5 text-zinc-600 hover:text-zinc-400 transition-colors focus:outline-none"
+                tabIndex={-1}
+                title={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
             </div>
 
             {error && (
@@ -185,7 +202,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess }) => {
           {/* Footer Toggle */}
           <div className="mt-8 text-center">
             <button 
-              onClick={() => { setIsLogin(!isLogin); setError(""); }}
+              onClick={() => { setIsLogin(!isLogin); setError(""); setPassword(""); }}
               className="text-xs text-zinc-500 hover:text-amber-200 transition-colors tracking-wide"
             >
               {isLogin ? "NEW USER? APPLY FOR ACCESS" : "ALREADY REGISTERED? SIGN IN"}

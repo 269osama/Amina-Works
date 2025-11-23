@@ -48,6 +48,7 @@ export interface User {
   role: UserRole;
   createdAt: number;
   lastLoginAt: number;
+  googleDriveConnected?: boolean;
 }
 
 export interface SessionLog {
