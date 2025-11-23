@@ -169,6 +169,11 @@ const App: React.FC = () => {
       setMediaFile(file);
       setMediaUrl(URL.createObjectURL(file));
       
+      // LOG ACTIVITY: UPLOAD
+      if (currentUser) {
+        mockBackend.logActivity(currentUser.id, 'UPLOAD', { fileName: file.name });
+      }
+
       // Only reset if we have no subtitles
       if (subtitles.length === 0) {
         const initialSubs: Subtitle[] = [];
@@ -203,8 +208,20 @@ const App: React.FC = () => {
 
     try {
       setStatus(ProcessingStatus.ANALYZING);
-      const generatedSubs = await generateSubtitlesFromMedia(mediaFile, setStatusMessage);
-      pushToHistory(generatedSubs);
+      
+      // New service returns object with subtitles AND detected language
+      const result = await generateSubtitlesFromMedia(mediaFile, setStatusMessage);
+      
+      // LOG ACTIVITY: GENERATE
+      if (currentUser) {
+        mockBackend.logActivity(currentUser.id, 'GENERATE', { 
+          fileName: mediaFile.name,
+          detectedLanguage: result.detectedLanguage,
+          itemCount: result.subtitles.length
+        });
+      }
+
+      pushToHistory(result.subtitles);
       setStatus(ProcessingStatus.IDLE);
     } catch (error: any) {
       console.error(error);
@@ -215,11 +232,23 @@ const App: React.FC = () => {
 
   const handleTranslate = async () => {
     if (subtitles.length === 0) return;
+    const langName = LANGUAGES.find(l => l.code === selectedLang)?.name || selectedLang;
+    
     setStatus(ProcessingStatus.TRANSLATING);
-    setStatusMessage(`Translating subtitles to ${LANGUAGES.find(l => l.code === selectedLang)?.name}...`);
+    setStatusMessage(`Translating subtitles to ${langName}...`);
 
     try {
       const translatedSubs = await translateSubtitlesWithGemini(subtitles, selectedLang);
+      
+      // LOG ACTIVITY: TRANSLATE
+      if (currentUser) {
+        mockBackend.logActivity(currentUser.id, 'TRANSLATE', { 
+          targetLanguage: langName,
+          itemCount: translatedSubs.length,
+          fileName: mediaFile?.name
+        });
+      }
+
       pushToHistory(translatedSubs);
       setStatus(ProcessingStatus.IDLE);
     } catch (error: any) {
@@ -239,6 +268,15 @@ const App: React.FC = () => {
   };
 
   const handleExport = (format: 'srt' | 'json') => {
+    // LOG ACTIVITY: EXPORT
+    if (currentUser) {
+      mockBackend.logActivity(currentUser.id, 'EXPORT', { 
+        format,
+        fileName: mediaFile?.name,
+        itemCount: subtitles.length
+      });
+    }
+
     if (format === 'srt') {
       const content = generateSRT(subtitles);
       downloadFile(content, 'subtitles.srt', 'text/plain');
@@ -268,10 +306,14 @@ const App: React.FC = () => {
 
   const handleDriveSelect = async (url: string, name: string) => {
       setMediaUrl(url);
-      setMediaFile(new File([], name)); // Mock file object for name display
+      setMediaFile(new File([], name)); 
+      
+      // LOG ACTIVITY: DRIVE IMPORT
+      if (currentUser) {
+          mockBackend.logActivity(currentUser.id, 'UPLOAD', { fileName: name + " (From Drive)" });
+      }
+
       setStatus(ProcessingStatus.READY);
-      // If we import a new video, we might want to keep existing subs or clear them. 
-      // For now, let's keep them if they exist, assuming re-linking.
   };
 
   const activeSubtitleId = subtitles.find(

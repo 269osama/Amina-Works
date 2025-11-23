@@ -35,6 +35,8 @@ export const LANGUAGES = [
   { code: 'ko', name: 'Korean' },
   { code: 'zh', name: 'Chinese (Simplified)' },
   { code: 'ru', name: 'Russian' },
+  { code: 'ar', name: 'Arabic' },
+  { code: 'hi', name: 'Hindi' },
 ];
 
 // --- Auth & Admin Types ---
@@ -65,4 +67,28 @@ export interface UserProjectData {
   subtitles: Subtitle[];
   lastEdited: number;
   mediaName?: string;
+}
+
+// --- Activity Logging ---
+
+export type ActivityType = 'UPLOAD' | 'GENERATE' | 'TRANSLATE' | 'EXPORT';
+
+export interface ActivityLog {
+  id: string;
+  userId: string;
+  userEmail: string;
+  timestamp: number;
+  type: ActivityType;
+  details: {
+    fileName?: string;
+    detectedLanguage?: string;
+    targetLanguage?: string;
+    itemCount?: number; // Number of subtitles
+    format?: string; // For exports
+  };
+}
+
+export interface GenerationResult {
+  subtitles: Subtitle[];
+  detectedLanguage: string;
 }

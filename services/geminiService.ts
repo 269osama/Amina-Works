@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { Subtitle } from "../types";
+import { Subtitle, GenerationResult } from "../types";
 import { parseTime, processMediaForGemini } from "../utils";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -13,46 +13,39 @@ const cleanJson = (text: string): string => {
   return clean.trim();
 };
 
-// We now accept the file object directly to handle optimization internally if needed,
-// or base64 if pre-processed. For simplicity in the calling code, let's keep the signature flexible
-// but we will use the optimization logic.
 export const generateSubtitlesFromMedia = async (
   mediaFile: File,
   onProgress: (status: string) => void
-): Promise<Subtitle[]> => {
+): Promise<GenerationResult> => {
   try {
     onProgress("Extracting & compressing audio...");
     
     // Optimize media: Extract audio -> Downsample to 16kHz -> Mono -> WAV
-    // This drastically reduces upload size and improves Gemini accuracy.
     const { data: base64Data, mimeType } = await processMediaForGemini(mediaFile);
 
-    onProgress("Gemini is analyzing speech patterns...");
+    onProgress("Gemini is analyzing speech & language...");
 
-    // Strictly enforced prompt for subtitle standards
+    // Prompt updated to request Language Detection explicitly in the JSON response
     const prompt = `
       Analyze the audio and generate professional subtitles (SRT style).
       
       STRICT GUIDELINES:
-      1. LANGUAGE: Detect the spoken language automatically. Transcribe EXACTLY what is said in that language.
-      2. LENGTH: 
-         - Maximum 2 lines per subtitle event.
-         - Maximum 42 characters per line.
-         - ABSOLUTELY NO PARAGRAPHS.
-      3. SPLITTING:
-         - If a sentence is long (>80 chars), SPLIT it into multiple sequential subtitle events.
-         - Do not cram text into one block. Better to have 3 short subtitles than 1 long one.
-      4. TIMING:
-         - Use standard SRT format timestamps (00:00:00,000).
-         - Duration should be between 1 and 6 seconds per event.
+      1. LANGUAGE: Detect the spoken language automatically. Return the language name in the JSON.
+      2. LENGTH: Maximum 2 lines per subtitle. Max 42 chars per line.
+      3. TIMING: Use standard SRT format timestamps (00:00:00,000).
       
-      Return ONLY a JSON array:
-      [{
-        "startTime": "00:00:00,000",
-        "endTime": "00:00:00,000",
-        "speaker": "Speaker Name",
-        "text": "Line 1 text\\nLine 2 text" 
-      }]
+      Return a JSON OBJECT with this structure:
+      {
+        "detectedLanguage": "English", 
+        "subtitles": [
+          {
+            "startTime": "00:00:00,000",
+            "endTime": "00:00:00,000",
+            "speaker": "Speaker Name",
+            "text": "Subtitle text here" 
+          }
+        ]
+      }
     `;
 
     const response = await ai.models.generateContent({
@@ -71,26 +64,35 @@ export const generateSubtitlesFromMedia = async (
       config: {
         responseMimeType: "application/json",
         responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              startTime: { type: Type.STRING },
-              endTime: { type: Type.STRING },
-              speaker: { type: Type.STRING },
-              text: { type: Type.STRING },
-            },
-            required: ["startTime", "endTime", "text"]
+          type: Type.OBJECT,
+          properties: {
+            detectedLanguage: { type: Type.STRING },
+            subtitles: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  startTime: { type: Type.STRING },
+                  endTime: { type: Type.STRING },
+                  speaker: { type: Type.STRING },
+                  text: { type: Type.STRING },
+                },
+                required: ["startTime", "endTime", "text"]
+              }
+            }
           }
         }
       }
     });
 
-    const text = response.text || "[]";
-    const rawData = JSON.parse(cleanJson(text));
+    const text = response.text || "{}";
+    const data = JSON.parse(cleanJson(text));
+    
+    const rawSubtitles = data.subtitles || [];
+    const detectedLang = data.detectedLanguage || "Unknown";
 
     // Transform to our internal format
-    return rawData.map((item: any, index: number) => ({
+    const subtitles: Subtitle[] = rawSubtitles.map((item: any, index: number) => ({
       id: `auto-${index}-${Date.now()}`,
       startTime: parseTime(item.startTime),
       endTime: parseTime(item.endTime),
@@ -98,6 +100,8 @@ export const generateSubtitlesFromMedia = async (
       speaker: item.speaker || 'Unknown',
       confidence: 0.95 
     }));
+
+    return { subtitles, detectedLanguage: detectedLang };
 
   } catch (error) {
     console.error("Gemini Transcription Error:", error);
@@ -110,7 +114,6 @@ export const translateSubtitlesWithGemini = async (
   targetLanguage: string
 ): Promise<Subtitle[]> => {
   try {
-    // Send relevant data only to save tokens
     const subtitlesToTranslate = subtitles.map(s => ({ id: s.id, text: s.text }));
     
     const prompt = `
@@ -145,7 +148,6 @@ export const translateSubtitlesWithGemini = async (
     const text = response.text || "[]";
     const translations = JSON.parse(cleanJson(text));
     
-    // Explicitly type the Map to avoid implicit 'any' errors
     const translationMap = new Map<string, string>(translations.map((t: any) => [t.id, t.translatedText]));
 
     return subtitles.map(sub => ({
